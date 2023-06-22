@@ -30,6 +30,23 @@ public class FileService : IFileService
         return await _context.Entries.Where(e => e.ParentId == entry.Id).ToListAsync();
     }
 
+    public async Task<Entry?> FindEntryById(int id)
+    {
+        return await _context.Entries.FindAsync(id);
+    }
+
+    public async Task UpdateEntry(Entry entry)
+    {
+        _context.Entries.Update(entry);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task DeleteEntry(Entry entry)
+    {
+        _context.Entries.Remove(entry);
+        await _context.SaveChangesAsync();
+    }
+
     public async Task<List<Entry>> FindEntriesByPath(string path)
     {
         // Divide o caminho em partes com base no separador '/'
@@ -92,8 +109,13 @@ public class FileService : IFileService
         return null;
     }
 
-    public async Task<List<Entry>> GetAllEntries()
+    public async Task<List<Entry>> GetAllEntries(bool onlyFolders)
     {
-        return await _context.Entries.ToListAsync();
+        IQueryable<Entry> result = _context.Entries;
+
+        if (onlyFolders)
+            result = result.Where(e => e.Type == EntryType.Folder);
+
+        return await result.ToListAsync();
     }
 }

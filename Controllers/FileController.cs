@@ -20,8 +20,21 @@ public class FileController : ControllerBase
         _memoryCache = memoryCache;
     }
 
-    [HttpPost]
-    public async Task<IActionResult> UploadAsync()
+    [HttpGet("GetEntryChildren")]
+    public async Task<IActionResult> GetEntryChildren(string path)
+    {
+        path = path.Replace("%", "/");
+        var entries = await _fileService.GetAllEntries(false);
+        var parentEntry = await _fileService.FindEntryByPath(path);
+
+        if (parentEntry != null)
+            entries = await _fileService.GetEntryChildren(parentEntry);
+
+        return Ok(entries);
+    }
+
+    [HttpPost("Entry")]
+    public async Task<IActionResult> CreateEntry()
     {
         var metadata = Request.Form["metadata"];
         var chunk = Request.Form.Files.GetFile("chunk");
@@ -66,30 +79,83 @@ public class FileController : ControllerBase
 
                         await _fileService.InsertEntry(entry);
                         _memoryCache.Remove(metadataObj.Filename);
+                        return Ok(entry);
                     }
                 }
             }
 
-            return Ok();
+            return BadRequest();
         }
 
         return BadRequest();
     }
 
-    [HttpGet("GetEntries")]
-    public async Task<IActionResult> GetEntries(string? path)
+    [HttpGet("Entry")]
+    public async Task<IActionResult> GetEntry(bool onlyFolders = false, string? path = "")
     {
-        var entries = await _fileService.GetAllEntries();
-
         if (string.IsNullOrEmpty(path)) // Return all
+        {
+            var entries = await _fileService.GetAllEntries(onlyFolders);
             return Ok(entries);
+        }
 
-        var parentEntry = await _fileService.FindEntryByPath(path);
-
-        if (parentEntry != null)
-            entries = await _fileService.GetEntryChildren(parentEntry);
-
-        return entries.Any() ? Ok(entries) : NotFound();
+        path = path.Replace("%", "/");
+        var entry = await _fileService.FindEntryByPath(path);
+        return entry != null ? Ok(entry) : NotFound();
     }
 
+    [HttpGet("EntryFullPath/{entryId:int}")]
+    public async Task<ActionResult<string>> GetEntryFullPath(int entryId)
+    {
+        var entry = await _fileService.FindEntryById(entryId);
+
+        if (entry == null)
+            return NotFound(); // Entrada não encontrada
+
+        var pathSegments = new List<string> { entry.Name };
+        var currentEntry = entry;
+
+        while (currentEntry.ParentId.HasValue)
+        {
+            var parentEntry = await _fileService.FindEntryById(currentEntry.ParentId.Value);
+            if (parentEntry == null)
+                return NotFound(); // Se o parent não for encontrado, interrompe o loop
+
+            pathSegments.Add(parentEntry.Name);
+            currentEntry = parentEntry;
+        }
+
+        pathSegments.Reverse();
+        var fullPath = string.Join("/", pathSegments);
+        return Ok(fullPath);
+    }
+
+    [HttpDelete("Entry")]
+    public async Task<IActionResult> DeleteEntry(Entry entry)
+    {
+        var dbEntry = await _fileService.FindEntryById(entry.Id);
+
+        if (dbEntry == null)
+            return NotFound();
+
+        await _fileService.DeleteEntry(dbEntry);
+        return Ok();
+    }
+
+    [HttpPut("Entry")]
+    public async Task<IActionResult> EditEntry(Entry entry)
+    {
+        var dbEntry = await _fileService.FindEntryById(entry.Id);
+
+        if (dbEntry == null)
+            return NotFound();
+
+        dbEntry.Name = entry.Name;
+        dbEntry.ParentId = entry.ParentId;
+        dbEntry.LastModified = DateTime.Now;
+
+        await _fileService.UpdateEntry(dbEntry);
+        return Ok();
+    }
 }
+
